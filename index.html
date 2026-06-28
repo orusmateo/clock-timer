@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#EEF0F2">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Clock Timer">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<title>Clock Timer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EEF0F2; --paper-hi:#F8F9FA; --ink:#1A1C1E; --ink-soft:#6B7178;
+    --line:#D4D8DC;
+    --red:#DD3A2D;            /* time remaining */
+    --red-urgent:#F0451F;     /* final minute */
+    --consumed:#B9C0C7;       /* time already passed */
+    --over:#E0922A;           /* overtime, past due */
+    --hand:#23262A; --second:#5A7CA8;
+    --focus:#2B6DEF;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--paper);color:var(--ink);
+    font-family:"Hanken Grotesk",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:clamp(14px,3vh,28px);
+    padding:max(16px,env(safe-area-inset-top)) 18px max(16px,env(safe-area-inset-bottom));
+    overflow:hidden;-webkit-user-select:none;user-select:none;
+  }
+
+  .stage{width:min(88vw,66vh,440px);aspect-ratio:1/1;position:relative}
+  svg{width:100%;height:100%;display:block;cursor:pointer;touch-action:none}
+  .face{fill:var(--paper-hi)}
+  .rim{fill:none;stroke:var(--line);stroke-width:1.2}
+  .tick{stroke:var(--ink);stroke-width:.45;opacity:.5}
+  .tick.major{stroke-width:1.3;opacity:.85}
+  .num{fill:var(--ink-soft);font-family:"DM Mono",monospace;font-size:4px;text-anchor:middle;dominant-baseline:central}
+
+  .seg-consumed{fill:var(--consumed);opacity:.55}
+  .seg-remaining{fill:var(--red);transition:fill .4s ease}
+  .seg-remaining.urgent{fill:var(--red-urgent)}
+  .seg-remaining.preview{opacity:.35}
+  .seg-over{fill:var(--over);opacity:.85}
+  .disc-edge{fill:none;stroke:var(--line);stroke-width:.5;opacity:.6}
+
+  .marker{stroke-width:1.6;stroke-linecap:round}
+  .marker.start{stroke:var(--ink)}
+  .marker.end{stroke:var(--red)}
+  .marker.over{stroke:var(--over)}
+
+  .hand{stroke-linecap:round;stroke:var(--hand)}
+  .hand.hour{stroke-width:2.6}
+  .hand.minute{stroke-width:1.8}
+  .hand.second{stroke-width:.7;stroke:var(--second)}
+  .hub{fill:var(--hand)}
+  .hub-ring{fill:var(--paper-hi);stroke:var(--hand);stroke-width:.8}
+
+  .panel{display:flex;flex-direction:column;align-items:center;gap:2px;min-height:74px;justify-content:center}
+  .bignum{font-family:"DM Mono",monospace;font-weight:500;font-size:clamp(30px,8vw,46px);line-height:1;font-variant-numeric:tabular-nums}
+  .bignum.over{color:var(--over)}
+  .statelabel{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-soft);font-weight:600}
+  .statelabel.over{color:var(--over)}
+  .subline{font-size:13px;color:var(--ink-soft);font-variant-numeric:tabular-nums;min-height:17px}
+
+  .controls{display:flex;flex-direction:column;align-items:center;gap:14px;width:min(88vw,440px)}
+  .presets{display:flex;gap:7px;flex-wrap:wrap;justify-content:center}
+  .chip{font:inherit;font-weight:500;font-size:14px;color:var(--ink);background:var(--paper-hi);
+    border:1px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer;
+    transition:transform .08s ease,border-color .15s,background .15s}
+  .chip:hover{border-color:var(--ink-soft)}
+  .chip:active{transform:scale(.95)}
+  .chip[aria-pressed="true"]{background:var(--ink);color:var(--paper-hi);border-color:var(--ink)}
+
+  .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center}
+  .btn{font:inherit;font-weight:600;font-size:16px;cursor:pointer;border-radius:13px;
+    padding:13px 26px;border:1px solid transparent;transition:transform .08s ease,opacity .15s,background .15s}
+  .btn:active{transform:scale(.97)}
+  .btn.primary{background:var(--ink);color:var(--paper-hi);min-width:132px}
+  .btn.primary[data-mode="pause"]{background:var(--red)}
+  .btn.primary[data-mode="reset"]{background:var(--over)}
+  .btn.ghost{background:transparent;color:var(--ink-soft);border-color:var(--line)}
+  .btn.ghost:hover{color:var(--ink);border-color:var(--ink-soft)}
+  .btn:disabled{opacity:.32;cursor:default}
+
+  .segmented{display:inline-flex;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--paper-hi)}
+  .segmented button{font:inherit;font-size:13px;font-weight:600;color:var(--ink-soft);
+    background:transparent;border:none;padding:11px 14px;cursor:pointer;display:flex;align-items:center;gap:6px;
+    border-right:1px solid var(--line);transition:background .15s,color .15s}
+  .segmented button:last-child{border-right:none}
+  .segmented button[aria-pressed="true"]{background:var(--ink);color:var(--paper-hi)}
+  .segmented svg{width:15px;height:15px}
+
+  :focus-visible{outline:2.5px solid var(--focus);outline-offset:3px;border-radius:6px}
+
+  #flash{position:fixed;inset:0;background:var(--over);opacity:0;pointer-events:none;
+    transition:opacity .12s ease;z-index:50}
+  @media (prefers-reduced-motion:reduce){.chip,.btn{transition:none}}
+
+  /* ---- install affordance ---- */
+  .install{position:fixed;top:max(12px,env(safe-area-inset-top));right:14px;z-index:40;
+    display:inline-flex;align-items:center;gap:7px;font:inherit;font-weight:600;font-size:13px;color:var(--ink);
+    background:var(--paper-hi);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;
+    box-shadow:0 2px 12px rgba(0,0,0,.07)}
+  .install svg{width:15px;height:15px}
+  .install[hidden]{display:none}
+  .sheet-backdrop{position:fixed;inset:0;z-index:60;background:rgba(20,22,24,.42);
+    display:flex;align-items:flex-end;justify-content:center}
+  .sheet-backdrop[hidden]{display:none}
+  .sheet{width:100%;max-width:460px;background:var(--paper-hi);border-radius:22px 22px 0 0;
+    padding:10px 24px max(24px,env(safe-area-inset-bottom));box-shadow:0 -10px 40px rgba(0,0,0,.18);
+    animation:sheet-up .28s cubic-bezier(.2,.8,.2,1)}
+  @keyframes sheet-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .sheet-handle{width:38px;height:4px;border-radius:2px;background:var(--line);margin:6px auto 16px}
+  .sheet h2{margin:0 0 4px;font-size:19px;font-weight:600}
+  .sheet .lead{margin:0 0 18px;color:var(--ink-soft);font-size:14px;line-height:1.45}
+  .steps{list-style:none;margin:0 0 20px;padding:0;display:flex;flex-direction:column;gap:14px}
+  .steps li{display:flex;align-items:center;gap:13px;font-size:15px;line-height:1.4}
+  .steps .glyph{flex:none;width:38px;height:38px;border-radius:11px;background:var(--paper);
+    border:1px solid var(--line);display:grid;place-items:center;color:var(--focus)}
+  .steps .glyph svg{width:20px;height:20px}
+  .steps b{font-weight:600}
+  .sheet .row{display:flex;gap:10px}
+  .sheet .row .btn{flex:1;min-width:0}
+  @media (prefers-reduced-motion:reduce){.sheet{animation:none}}
+</style>
+</head>
+<body>
+
+  <div class="stage" id="stage">
+    <svg id="dial" viewBox="0 0 100 100" aria-label="Analogue clock with timer overlay. Tap or drag the dial to set how long from now the timer should run.">
+      <circle class="face" cx="50" cy="50" r="48"/>
+      <circle class="rim"  cx="50" cy="50" r="48"/>
+      <g id="ticks"></g>
+      <g id="overlay"></g>
+      <circle class="disc-edge" cx="50" cy="50" r="37"/>
+      <g id="markers"></g>
+      <line class="hand hour"   id="hHour"   x1="50" y1="50" x2="50" y2="28"/>
+      <line class="hand minute" id="hMinute" x1="50" y1="50" x2="50" y2="14"/>
+      <line class="hand second" id="hSecond" x1="50" y1="56" x2="50" y2="11"/>
+      <circle class="hub-ring" cx="50" cy="50" r="2.4"/>
+      <circle class="hub" cx="50" cy="50" r="1.1"/>
+    </svg>
+  </div>
+
+  <div class="panel">
+    <div class="bignum" id="bignum">25:00</div>
+    <div class="statelabel" id="statelabel">Ready</div>
+    <div class="subline" id="subline">Tap the dial or pick a length</div>
+  </div>
+
+  <div class="controls">
+    <div class="presets" id="presets" role="group" aria-label="Timer length"></div>
+    <div class="actions">
+      <button class="btn primary" id="primary" data-mode="start">Start</button>
+      <button class="btn ghost" id="reset" disabled>Reset</button>
+    </div>
+    <div class="segmented" id="soundmode" role="group" aria-label="Alarm style"></div>
+  </div>
+
+  <div id="flash"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const els = {
+    stage:$('stage'), dial:$('dial'), ticks:$('ticks'), overlay:$('overlay'), markers:$('markers'),
+    hHour:$('hHour'), hMinute:$('hMinute'), hSecond:$('hSecond'),
+    bignum:$('bignum'), statelabel:$('statelabel'), subline:$('subline'),
+    presets:$('presets'), primary:$('primary'), reset:$('reset'),
+    soundmode:$('soundmode'), flash:$('flash')
+  };
+
+  const R = 37;            // timer-disc radius (sits inside the numerals)
+  const HOUR_MS = 3600*1000;
+
+  const S = {
+    mode:'idle',           // idle | running | paused | overrun
+    durationMs: 25*60*1000,
+    startAt:0, endAt:0,    // wall-clock timestamps (Date.now)
+    pausedRemaining:0,
+    sound:'low',           // low | high | flash
+    alarmRinging:false,
+    wakeLock:null
+  };
+
+  /* ---------- geometry (degrees clockwise from 12 o'clock) ---------- */
+  const polar = (deg,r) => { const a=deg*Math.PI/180; return [50+r*Math.sin(a), 50-r*Math.cos(a)]; };
+  function sector(anchorDeg, sweepDeg, r){
+    if (sweepDeg <= 0.05) return "";
+    if (sweepDeg >= 359.9){
+      const [tx,ty]=polar(0,r), [bx,by]=polar(180,r);
+      return `M${tx} ${ty} A${r} ${r} 0 1 1 ${bx} ${by} A${r} ${r} 0 1 1 ${tx} ${ty} Z`;
+    }
+    const [sx,sy]=polar(anchorDeg,r), [ex,ey]=polar(anchorDeg+sweepDeg,r);
+    const large = sweepDeg>180?1:0;
+    return `M50 50 L${sx.toFixed(3)} ${sy.toFixed(3)} A${r} ${r} 0 ${large} 1 ${ex.toFixed(3)} ${ey.toFixed(3)} Z`;
+  }
+  const minToDeg = m => m*6;                  // 60 min = 360°
+  const dateToFrac = d => ((d.getMinutes()*60 + d.getSeconds() + d.getMilliseconds()/1000)/3600);
+
+  /* ---------- static dial: ticks + numerals ---------- */
+  (function buildDial(){
+    let s="";
+    for (let m=0;m<60;m++){
+      const deg=m*6, major=m%5===0;
+      const [x1,y1]=polar(deg,48), [x2,y2]=polar(deg,major?44:45.6);
+      s+=`<line class="tick ${major?'major':''}" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"/>`;
+    }
+    for (let h=1;h<=12;h++){
+      const [lx,ly]=polar(h*30,41);
+      s+=`<text class="num" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}">${h}</text>`;
+    }
+    els.ticks.innerHTML=s;
+  })();
+
+  /* ---------- presets ---------- */
+  [5,10,15,20,25,45,60].forEach(min=>{
+    const b=document.createElement('button');
+    b.className='chip'; b.textContent=min; b.dataset.min=min; b.setAttribute('aria-pressed','false');
+    b.addEventListener('click',()=>setDuration(min*60*1000));
+    els.presets.appendChild(b);
+  });
+
+  /* ---------- sound-mode control ---------- */
+  const ICON={
+    low:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/></svg>',
+    high:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg>',
+    flash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>'
+  };
+  [['low','Low'],['high','High'],['flash','Flash']].forEach(([key,lbl])=>{
+    const b=document.createElement('button');
+    b.innerHTML=ICON[key]+'<span>'+lbl+'</span>'; b.dataset.sound=key;
+    b.setAttribute('aria-pressed', key===S.sound);
+    b.addEventListener('click',()=>{
+      S.sound=key;
+      [...els.soundmode.children].forEach(c=>c.setAttribute('aria-pressed',c.dataset.sound===key));
+      ensureAudio();
+    });
+    els.soundmode.appendChild(b);
+  });
+
+  /* ---------- formatting ---------- */
+  const fmt = ms => { const t=Math.max(0,Math.round(ms/1000)); const m=Math.floor(t/60),s=t%60;
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; };
+  const clock = ts => { const d=new Date(ts); const h=d.getHours()%12||12;
+    return `${h}:${String(d.getMinutes()).padStart(2,'0')}`; };
+
+  /* ---------- render loop (clock always live) ---------- */
+  function frame(){
+    const now=new Date(), nowMs=now.getTime();
+    const nowDeg=dateToFrac(now)*360;
+
+    // hands
+    const sDeg=(now.getSeconds()+now.getMilliseconds()/1000)*6;
+    const mDeg=(now.getMinutes()+now.getSeconds()/60)*6;
+    const hDeg=((now.getHours()%12)+now.getMinutes()/60)*30;
+    setHand(els.hHour, hDeg, 24);
+    setHand(els.hMinute, mDeg, 38);
+    setHand(els.hSecond, sDeg, 39, 6);
+
+    // overlay segments
+    let html="", mk="";
+    const dur = S.durationMs;
+
+    if (S.mode==='idle'){
+      // preview: where it would end if started now
+      html += seg('remaining preview', sector(nowDeg, Math.min(360,minToDeg(dur/60000)), R));
+      if (dur>0) mk += marker(nowDeg+minToDeg(dur/60000),'end');
+    } else {
+      const startDeg = dateToFrac(new Date(S.startAt))*360;
+      const elapsed = (S.mode==='paused' ? S.endAt - S.pausedRemaining : nowMs) - S.startAt;
+      const elapsedMin = Math.max(0, elapsed/60000);
+      const durMin = dur/60000;
+      const consumedMin = Math.min(elapsedMin, durMin);
+      const remainMin = Math.max(0, durMin - elapsedMin);
+      const overMin = Math.max(0, elapsedMin - durMin);
+
+      html += seg('consumed', sector(startDeg, minToDeg(consumedMin), R));
+      const remClass = (S.mode==='running' && remainMin<=1) ? 'remaining urgent' : 'remaining';
+      html += seg(remClass, sector(startDeg+minToDeg(consumedMin), minToDeg(remainMin), R));
+      if (overMin>0) html += seg('over', sector(startDeg+minToDeg(durMin), minToDeg(Math.min(overMin,60)), R));
+
+      mk += marker(startDeg,'start');
+      mk += marker(startDeg+minToDeg(durMin), overMin>0?'over':'end');
+    }
+    els.overlay.innerHTML=html;
+    els.markers.innerHTML=mk;
+
+    // trigger expiry once
+    if (S.mode==='running' && nowMs>=S.endAt) toOverrun();
+
+    updatePanel(nowMs);
+    requestAnimationFrame(frame);
+  }
+  function setHand(el,deg,len,tail=0){
+    const [x2,y2]=polar(deg,len), [x1,y1]=polar(deg,-tail);
+    el.setAttribute('x1',x1.toFixed(2)); el.setAttribute('y1',y1.toFixed(2));
+    el.setAttribute('x2',x2.toFixed(2)); el.setAttribute('y2',y2.toFixed(2));
+  }
+  const seg=(cls,d)=> d?`<path class="seg-${cls.split(' ')[0]} ${cls.split(' ').slice(1).join(' ')}" d="${d}"/>`:"";
+  function marker(deg,kind){
+    const [x1,y1]=polar(deg,R), [x2,y2]=polar(deg,R+6.5);
+    return `<line class="marker ${kind}" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"/>`;
+  }
+
+  function updatePanel(nowMs){
+    if (S.mode==='idle'){
+      els.bignum.className='bignum'; els.bignum.textContent=fmt(S.durationMs);
+      els.statelabel.className='statelabel'; els.statelabel.textContent='Ready';
+      els.subline.textContent = S.durationMs>0 ? `Ends ~${clock(nowMs+S.durationMs)} if you start now` : 'Tap the dial or pick a length';
+    } else if (S.mode==='running'){
+      els.bignum.className='bignum'; els.bignum.textContent=fmt(S.endAt-nowMs);
+      els.statelabel.className='statelabel'; els.statelabel.textContent='Running';
+      els.subline.textContent=`Started ${clock(S.startAt)}  →  ends ${clock(S.endAt)}`;
+    } else if (S.mode==='paused'){
+      els.bignum.className='bignum'; els.bignum.textContent=fmt(S.pausedRemaining);
+      els.statelabel.className='statelabel'; els.statelabel.textContent='Paused';
+      els.subline.textContent=`Started ${clock(S.startAt)}  ·  ${fmt(S.pausedRemaining)} left`;
+    } else { // overrun
+      els.bignum.className='bignum over'; els.bignum.textContent='+'+fmt(nowMs-S.endAt);
+      els.statelabel.className='statelabel over'; els.statelabel.textContent='Over';
+      els.subline.textContent=`Was due ${clock(S.endAt)}  ·  started ${clock(S.startAt)}`;
+    }
+  }
+
+  /* ---------- state transitions ---------- */
+  function setDuration(ms){ stopAlarm(); S.mode='idle'; S.durationMs=ms;
+    [...els.presets.children].forEach(c=>c.setAttribute('aria-pressed',Number(c.dataset.min)*60000===ms));
+    syncButtons(); }
+  function start(){ ensureAudio(); S.mode='running'; S.startAt=Date.now(); S.endAt=S.startAt+S.durationMs;
+    requestWakeLock(); syncButtons(); }
+  function pause(){ S.pausedRemaining=Math.max(0,S.endAt-Date.now()); S.mode='paused'; releaseWakeLock(); syncButtons(); }
+  function resume(){ ensureAudio(); const gap=S.durationMs-S.pausedRemaining; S.startAt=Date.now()-gap;
+    S.endAt=Date.now()+S.pausedRemaining; S.mode='running'; requestWakeLock(); syncButtons(); }
+  function toOverrun(){ S.mode='overrun'; releaseWakeLock(); startAlarm(); syncButtons(); }
+  function reset(){ stopAlarm(); S.mode='idle'; syncButtons(); }
+
+  function syncButtons(){
+    const p=els.primary;
+    if (S.mode==='idle'){ p.dataset.mode='start'; p.textContent='Start'; p.disabled=S.durationMs<=0; els.reset.disabled=true; }
+    else if (S.mode==='running'){ p.dataset.mode='pause'; p.textContent='Pause'; p.disabled=false; els.reset.disabled=false; }
+    else if (S.mode==='paused'){ p.dataset.mode='start'; p.textContent='Resume'; p.disabled=false; els.reset.disabled=false; }
+    else { p.dataset.mode='reset'; p.textContent=S.alarmRinging?'Stop':'Reset'; p.disabled=false; els.reset.disabled=false; }
+  }
+  els.primary.addEventListener('click',()=>{
+    if (S.mode==='idle') start();
+    else if (S.mode==='running') pause();
+    else if (S.mode==='paused') resume();
+    else { stopAlarm(); reset(); }
+  });
+  els.reset.addEventListener('click',()=>{ stopAlarm(); reset(); });
+
+  /* ---------- drag/tap to set how-long-from-now (sets the END point) ---------- */
+  let dragging=false;
+  function applyDrag(e){
+    const r=els.dial.getBoundingClientRect();
+    const x=(e.clientX-r.left)/r.width*100-50, y=(e.clientY-r.top)/r.height*100-50;
+    let deg=Math.atan2(x,-y)*180/Math.PI; if(deg<0)deg+=360;
+    const nowDeg=dateToFrac(new Date())*360;
+    let delta=deg-nowDeg; if(delta<0)delta+=360;
+    let minutes=Math.round(delta/6);
+    if (minutes===0 && delta>3) minutes=60;
+    setDuration(minutes*60*1000);
+  }
+  els.dial.addEventListener('pointerdown',e=>{ if(S.alarmRinging){stopAlarm();reset();return;}
+    dragging=true; els.dial.setPointerCapture(e.pointerId); applyDrag(e); });
+  els.dial.addEventListener('pointermove',e=>{ if(dragging) applyDrag(e); });
+  els.dial.addEventListener('pointerup',()=>dragging=false);
+  els.dial.addEventListener('pointercancel',()=>dragging=false);
+
+  /* ---------- alarm: Casio-style beep / loud / silent flash ---------- */
+  let actx=null, alarmInt=null, cycles=0;
+  function ensureAudio(){ try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+    if(actx.state==='suspended') actx.resume(); }catch(_){ } }
+  function casioBeep(t,gain){
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type='square'; o.frequency.value=4000; o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(gain,t+0.004);
+    g.gain.setValueAtTime(gain,t+0.06); g.gain.linearRampToValueAtTime(0,t+0.07);
+    o.start(t); o.stop(t+0.09);
+  }
+  function fireCycle(){
+    if (S.sound==='flash'){ flashPulse(0); flashPulse(450); return; }   // ~2 Hz, photosensitivity-safe
+    if (!actx) return;
+    const g = S.sound==='high'?0.3:0.07, t0=actx.currentTime;
+    for(let i=0;i<4;i++) casioBeep(t0+i*0.13, g);                        // 4-beep burst, like a watch alarm
+  }
+  function flashPulse(delay){ setTimeout(()=>{ els.flash.style.opacity='0.82';
+    setTimeout(()=>els.flash.style.opacity='0',170); }, delay); }
+  function startAlarm(){ stopAlarm(); S.alarmRinging=true; cycles=0; ensureAudio(); fireCycle();
+    alarmInt=setInterval(()=>{ if(++cycles>=30){stopAlarm();return;} fireCycle(); },1000); syncButtons(); }
+  function stopAlarm(){ if(alarmInt)clearInterval(alarmInt); alarmInt=null; S.alarmRinging=false;
+    els.flash.style.opacity='0'; syncButtons(); }
+
+  /* ---------- wake lock (keep screen on while running) ---------- */
+  async function requestWakeLock(){ try{ if('wakeLock'in navigator) S.wakeLock=await navigator.wakeLock.request('screen'); }catch(_){ } }
+  function releaseWakeLock(){ try{ S.wakeLock&&S.wakeLock.release(); }catch(_){ } S.wakeLock=null; }
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&S.mode==='running') requestWakeLock(); });
+
+  /* ---------- keyboard ---------- */
+  window.addEventListener('keydown',e=>{ if(e.target.tagName==='BUTTON')return;
+    if(e.code==='Space'){ e.preventDefault(); els.primary.click(); }
+    if(e.key.toLowerCase()==='r'){ stopAlarm(); reset(); } });
+
+  syncButtons();
+  requestAnimationFrame(frame);
+})();
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+    });
+  }
+</script>
+
+  <button id="installBtn" class="install" hidden aria-haspopup="dialog" aria-label="Install this app">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M5 21h14"/></svg>
+    <span>Install</span>
+  </button>
+
+  <div id="installSheet" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-handle"></div>
+      <h2 id="sheetTitle">Add to your Home Screen</h2>
+      <p class="lead" id="sheetLead"></p>
+      <ol class="steps" id="sheetSteps"></ol>
+      <div class="row">
+        <button class="btn ghost" id="sheetLater">Maybe later</button>
+        <button class="btn primary" id="sheetClose">Got it</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  var installBtn=document.getElementById('installBtn');
+  var sheet=document.getElementById('installSheet');
+  var sheetClose=document.getElementById('sheetClose');
+  var sheetLater=document.getElementById('sheetLater');
+  if(!installBtn) return;
+
+  var ua=navigator.userAgent;
+  var standalone=window.matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+  var isIPad=/ipad/i.test(ua) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  var iOS=/iphone|ipod/i.test(ua) || isIPad;
+  var iOSSafari=iOS && !/crios|fxios|edgios/i.test(ua);
+  var deferred=null;
+
+  function dismissed(){ try{ return localStorage.getItem('ct_install_dismissed')==='1'; }catch(e){ return false; } }
+  function setDismissed(){ try{ localStorage.setItem('ct_install_dismissed','1'); }catch(e){} }
+  function show(){ if(standalone||dismissed()) return; installBtn.hidden=false; }
+  function hide(){ installBtn.hidden=true; }
+
+  window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); deferred=e; show(); });
+  window.addEventListener('appinstalled', function(){ hide(); deferred=null; });
+  if(iOS) show();
+
+  var SHARE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  var ADD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/></svg>';
+  var CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var SAF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.3 4.7-4.7 2.3 2.3-4.7z"/></svg>';
+  function glyph(g){ return '<span class="glyph">'+g+'</span>'; }
+
+  function buildSteps(){
+    var ol=document.getElementById('sheetSteps');
+    var lead=document.getElementById('sheetLead');
+    if(iOS && !iOSSafari){
+      lead.textContent='Add to Home Screen only works from Safari.';
+      ol.innerHTML='<li>'+glyph(SAF)+'<span>Open this page in <b>Safari</b>, then use <b>Share \u2192 Add to Home Screen</b>.</span></li>';
+      return;
+    }
+    lead.textContent='Install Clock Timer so it opens full-screen, runs offline, and keeps the screen awake while timing.';
+    var where=isIPad?'top-right corner':'bottom bar';
+    ol.innerHTML=
+      '<li>'+glyph(SHARE)+'<span>Tap the <b>Share</b> button in the '+where+' of Safari.</span></li>'+
+      '<li>'+glyph(ADD)+'<span>Choose <b>Add to Home Screen</b>.</span></li>'+
+      '<li>'+glyph(CHECK)+'<span>Tap <b>Add</b>. The clock icon appears on your Home Screen.</span></li>';
+  }
+  function openSheet(){ buildSteps(); sheet.hidden=false; document.body.style.overflow='hidden'; sheetClose.focus(); }
+  function closeSheet(){ sheet.hidden=true; document.body.style.overflow=''; }
+
+  installBtn.addEventListener('click', function(){
+    if(deferred){
+      deferred.prompt();
+      Promise.resolve(deferred.userChoice).then(function(c){ if(c && c.outcome==='accepted') hide(); });
+      deferred=null;
+    } else { openSheet(); }
+  });
+  sheetClose.addEventListener('click', closeSheet);
+  sheetLater.addEventListener('click', function(){ setDismissed(); hide(); closeSheet(); });
+  sheet.addEventListener('click', function(e){ if(e.target===sheet) closeSheet(); });
+  window.addEventListener('keydown', function(e){ if(e.key==='Escape' && !sheet.hidden) closeSheet(); });
+})();
+</script>
+
+</body>
+</html>
